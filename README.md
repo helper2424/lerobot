@@ -4,7 +4,7 @@
     <source media="(prefers-color-scheme: light)" srcset="media/lerobot-logo-thumbnail.png">
     <img alt="LeRobot, Hugging Face Robotics Library" src="media/lerobot-logo-thumbnail.png" style="max-width: 100%;">
   </picture>
-  <br/>
+  <br/>lerobot/scripts/control_sim_robot.py
   <br/>
 </p>
 
@@ -417,3 +417,4 @@ Additionally, if you are using any of the particular policy architecture, pretra
   year={2024}
 }
 ```
+
