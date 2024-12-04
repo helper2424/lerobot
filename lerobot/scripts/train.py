@@ -312,9 +312,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     logging.info("make_dataset")
     offline_dataset = make_dataset(cfg)
 
-    remove_indices=['observation.images.image_top', 'observation.velocity', 'seed']
+    # remove_indices=['observation.images.image_top', 'observation.velocity', 'seed']
     # temp fix michel_Aractingi TODO
-    offline_dataset.hf_dataset = offline_dataset.hf_dataset.remove_columns(remove_indices)
+    # offline_dataset.hf_dataset = offline_dataset.hf_dataset.remove_columns(remove_indices)
 
     if isinstance(offline_dataset, MultiLeRobotDataset):
         logging.info(
