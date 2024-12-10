@@ -92,7 +92,7 @@ class ACTConfig:
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
-            "observation.images.top": [3, 480, 640],
+            "observation.images.web": [3, 480, 640],
             "observation.state": [14],
         }
     )
@@ -105,7 +105,7 @@ class ACTConfig:
     # Normalization / Unnormalization
     input_normalization_modes: dict[str, str] = field(
         default_factory=lambda: {
-            "observation.images.top": "mean_std",
+            "observation.images.web": "mean_std",
             "observation.state": "mean_std",
         }
     )

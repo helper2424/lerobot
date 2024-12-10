@@ -132,4 +132,70 @@ python lerobot/scripts/control_robot.py record \
 
 python lerobot/scripts/visualize_dataset_html.py \
   --root data \
-  --repo-id ${HF_USER}/koch_move_obj_test
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras
+
+
+python lerobot/scripts/control_robot.py record \
+  --robot-path lerobot/configs/robot/koch.yaml \
+  --fps 30 \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras \
+  --tags tutorial \
+  --warmup-time-s 2 \
+  --episode-time-s 20 \
+  --reset-time-s 10 \
+  --num-episodes 100
+
+
+DATA_DIR=data python lerobot/scripts/train.py \
+  dataset_repo_id=${HF_USER}/koch_move_obj_static_cameras \
+  policy=act_koch_real \
+  env=koch_real \
+  hydra.run.dir=outputs/train/koch_move_obj_static_cameras \
+  hydra.job.name=koch_move_obj_static_cameras \
+  device=cuda \
+  wandb.enable=true
+
+
+huggingface-cli upload "helper2424/koch_move_obj_static_cameras" data/helper2424/koch_move_obj_static_cameras --repo-type dataset 
+
+
+huggingface-cli upload ${HF_USER}/koch_move_obj_static_cameras \
+  outputs/train/koch_move_obj_static_cameras/checkpoints/last/pretrained_model
+
+
+python lerobot/scripts/control_robot.py record \
+  --robot-path lerobot/configs/robot/koch.yaml \
+  --fps 30 \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras_eval2 \
+  --tags tutorial eval \
+  --warmup-time-s 5 \
+  --episode-time-s 30 \
+  --reset-time-s 30 \
+  --num-episodes 1 \
+--policy-overrides "device=mps" \
+  -p ${HF_USER}/koch_move_obj_static_cameras 
+
+
+python lerobot/scripts/visualize_dataset.py \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras_eval --episode-index 0
+  
+
+python lerobot/scripts/visualize_dataset.py \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras --episode-index 0
+
+python lerobot/scripts/visualize_dataset.py \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras --episode-index 50
+
+python lerobot/scripts/visualize_dataset.py \
+  --root data \
+  --repo-id ${HF_USER}/koch_move_obj_static_cameras_eval2 --episode-index 0
+
+
+ python lerobot/scripts/control_robot.py teleoperate \
+  --robot-path lerobot/configs/robot/koch.yaml \ 
+  --robot-overrides '~cameras'

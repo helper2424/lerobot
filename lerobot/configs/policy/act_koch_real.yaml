@@ -17,6 +17,7 @@ seed: 1000
 dataset_repo_id: lerobot/koch_pick_place_lego
 
 override_dataset_stats:
+
   observation.images.web:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)

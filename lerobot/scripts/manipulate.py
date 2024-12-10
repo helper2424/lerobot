@@ -5,6 +5,8 @@ from lerobot.common.robot_devices.robots.manipulator import ManipulatorRobot
 from lerobot.common.robot_devices.motors.dynamixel import DynamixelMotorsBus
 from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera
 import torch 
+import os
+import platform
 
 record_time_s = 30
 fps = 60
@@ -54,15 +56,36 @@ robot = ManipulatorRobot(
 
 robot.connect()
 
+def say(text, blocking=False):
+    # Check if mac, linux, or windows.
+    if platform.system() == "Darwin":
+        cmd = f'say "{text}"'
+    elif platform.system() == "Linux":
+        cmd = f'spd-say "{text}"'
+    elif platform.system() == "Windows":
+        cmd = (
+            'PowerShell -Command "Add-Type -AssemblyName System.Speech; '
+            f"(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{text}')\""
+        )
+
+    if not blocking and platform.system() in ["Darwin", "Linux"]:
+        # TODO(rcadene): Make it work for Windows
+        # Use the ampersand to run command in the background
+        cmd += " &"
+
+    os.system(cmd)
+
 
 inference_time_s = 120
 fps = 30
 device = "mps"  # TODO: On Mac, use "mps" or "cpu"
 
-ckpt_path = "outputs/train/act_koch_test/checkpoints/last/pretrained_model"
-policy = ACTPolicy.from_pretrained(ckpt_path)
+# ckpt_path = "outputs/train/act_koch_test/checkpoints/last/pretrained_model"
+# ckpt_path = "/Users/helper2424/Documents/lerobot/outputs/koch_move_obj_static_cameras/model.safetensors"
+policy = ACTPolicy.from_pretrained("helper2424/koch_move_obj_static_cameras", force_download=True)
 policy.to(device)
 
+say("I am going to collect objects")
 for _ in range(inference_time_s * fps):
     start_time = time.perf_counter()
 
@@ -90,3 +113,5 @@ for _ in range(inference_time_s * fps):
 
     dt_s = time.perf_counter() - start_time
     busy_wait(1 / fps - dt_s)
+
+say("I have finished collecting objects")

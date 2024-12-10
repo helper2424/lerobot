@@ -430,6 +430,7 @@ def calibrate(robot: Robot, arms: list[str] | None):
 
 @safe_disconnect
 def teleoperate(robot: Robot, fps: int | None = None, teleop_time_s: float | None = None):
+    say('Start teleoperation')
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
         robot.connect()
