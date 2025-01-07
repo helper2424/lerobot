@@ -4,7 +4,6 @@ from typing import Optional
 import torch
 from huggingface_hub import PyTorchModelHubMixin
 from torch import Tensor, nn
-from transformers import AutoImageProcessor, AutoModel
 
 from .configuration_classifier import ClassifierConfig
 
@@ -23,9 +22,11 @@ class ClassifierOutput:
         self.hidden_states = hidden_states
 
     def __repr__(self):
-        return (f"ClassifierOutput(logits={self.logits}, "
-                f"probabilities={self.probabilities}, "
-                f"hidden_states={self.hidden_states})")
+        return (
+            f"ClassifierOutput(logits={self.logits}, "
+            f"probabilities={self.probabilities}, "
+            f"hidden_states={self.hidden_states})"
+        )
 
 
 class Classifier(
@@ -42,6 +43,8 @@ class Classifier(
     name = "classifier"
 
     def __init__(self, config: ClassifierConfig):
+        from transformers import AutoImageProcessor, AutoModel
+
         super().__init__()
         self.config = config
         self.processor = AutoImageProcessor.from_pretrained(self.config.model_name, trust_remote_code=True)
@@ -74,7 +77,7 @@ class Classifier(
             self.feature_dim = self.encoder.config.hidden_sizes[-1]  # Last channel dimension
         else:
             raise ValueError("Unsupported CNN architecture")
-        
+
         self.encoder = self.encoder.to(self.config.device)
 
     def _freeze_encoder(self) -> None:
