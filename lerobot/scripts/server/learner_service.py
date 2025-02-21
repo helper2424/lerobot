@@ -2,11 +2,10 @@ import hilserl_pb2  # type: ignore
 import hilserl_pb2_grpc  # type: ignore
 import torch
 from torch import nn
-from threading import Lock, Event
 import logging
-import queue
 import io
 import pickle
+from multiprocessing import Event, Lock, Queue
 
 from lerobot.scripts.server.buffer import (
     move_state_dict_to_device,
@@ -28,8 +27,8 @@ class LearnerService(hilserl_pb2_grpc.LearnerServiceServicer):
         policy: nn.Module,
         policy_lock: Lock,
         seconds_between_pushes: float,
-        transition_queue: queue.Queue,
-        interaction_message_queue: queue.Queue,
+        transition_queue: Queue,
+        interaction_message_queue: Queue,
     ):
         self.shutdown_event = shutdown_event
         self.policy = policy

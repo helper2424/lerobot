@@ -19,10 +19,10 @@ import queue
 import shutil
 import time
 from pprint import pformat
-from threading import Lock, Thread
 import signal
-from threading import Event
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Process, Event, Lock, Queue
+from queue import Empty
 
 import grpc
 
@@ -153,7 +153,7 @@ def initialize_replay_buffer(
             capacity=cfg.training.online_buffer_capacity,
             device=device,
             state_keys=cfg.policy.input_shapes.keys(),
-            storage_device=device
+            storage_device=device,
         )
 
     dataset = LeRobotDataset(
@@ -169,8 +169,13 @@ def initialize_replay_buffer(
     )
 
 
-def get_observation_features(policy: SACPolicy, observations: torch.Tensor, next_observations: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-    if policy.config.vision_encoder_name is None or not policy.config.freeze_vision_encoder:
+def get_observation_features(
+    policy: SACPolicy, observations: torch.Tensor, next_observations: torch.Tensor
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    if (
+        policy.config.vision_encoder_name is None
+        or not policy.config.freeze_vision_encoder
+    ):
         return None, None
 
     with torch.no_grad():
@@ -205,9 +210,13 @@ def start_learner_threads(
     host = cfg.actor_learner_config.learner_host
     port = cfg.actor_learner_config.learner_port
 
-    transition_thread = Thread(
+    # Create multiprocessing queues
+    transition_queue = Queue()
+    interaction_message_queue = Queue()
+
+    # Create and start training process
+    training_process = Process(
         target=add_actor_information_and_train,
-        daemon=True,
         args=(
             cfg,
             device,
@@ -221,11 +230,13 @@ def start_learner_threads(
             resume_optimization_step,
             resume_interaction_step,
             shutdown_event,
+            transition_queue,
+            interaction_message_queue,
         ),
     )
+    training_process.start()
 
-    transition_thread.start()
-
+    # Create service with multiprocessing queues
     service = learner_service.LearnerService(
         shutdown_event,
         policy,
@@ -234,14 +245,15 @@ def start_learner_threads(
         transition_queue,
         interaction_message_queue,
     )
+
     server = start_learner_server(service, host, port)
 
     shutdown_event.wait()
     server.stop(learner_service.STUTDOWN_TIMEOUT)
     logging.info("[LEARNER] gRPC server stopped")
 
-    transition_thread.join()
-    logging.info("[LEARNER] Transition thread stopped")
+    training_process.join()
+    logging.info("[LEARNER] Training process stopped")
 
 
 def start_learner_server(
@@ -286,13 +298,15 @@ def add_actor_information_and_train(
     replay_buffer: ReplayBuffer,
     offline_replay_buffer: ReplayBuffer,
     batch_size: int,
-    optimizers: dict[str, torch.optim.Optimizer],
+    optimizers: dict,
     policy: nn.Module,
     policy_lock: Lock,
     logger: Logger,
     resume_optimization_step: int | None = None,
     resume_interaction_step: int | None = None,
     shutdown_event: Event | None = None,
+    transition_queue: Queue | None = None,
+    interaction_message_queue: Queue | None = None,
 ):
     """
     Handles data transfer from the actor to the learner, manages training updates,
@@ -343,23 +357,30 @@ def add_actor_information_and_train(
             logging.info("[LEARNER] Shutdown signal received. Exiting...")
             break
 
-        while not transition_queue.empty():
-            transition_list = transition_queue.get()
-            for transition in transition_list:
-                transition = move_transition_to_device(transition, device=device)
-                replay_buffer.add(**transition)
+        # Use get_nowait() to avoid blocking
+        try:
+            while True:
+                transition_list = transition_queue.get_nowait()
+                for transition in transition_list:
+                    transition = move_transition_to_device(transition, device=device)
+                    replay_buffer.add(**transition)
 
-                if transition.get("complementary_info", {}).get("is_intervention"):
-                    offline_replay_buffer.add(**transition)
+                    if transition.get("complementary_info", {}).get("is_intervention"):
+                        offline_replay_buffer.add(**transition)
+        except Empty:
+            pass
 
-        while not interaction_message_queue.empty():
-            interaction_message = interaction_message_queue.get()
-            # If cfg.resume, shift the interaction step with the last checkpointed step in order to not break the logging
-            interaction_message["Interaction step"] += interaction_step_shift
-            logger.log_dict(
-                interaction_message, mode="train", custom_step_key="Interaction step"
-            )
-            # logging.info(f"Interaction message: {interaction_message}")
+        try:
+            while True:
+                interaction_message = interaction_message_queue.get_nowait()
+                interaction_message["Interaction step"] += interaction_step_shift
+                logger.log_dict(
+                    interaction_message,
+                    mode="train",
+                    custom_step_key="Interaction step",
+                )
+        except Empty:
+            pass
 
         if len(replay_buffer) < cfg.training.online_step_before_learning:
             continue
@@ -372,7 +393,6 @@ def add_actor_information_and_train(
                 batch_offline = offline_replay_buffer.sample(batch_size)
                 batch = concatenate_batch_transitions(batch, batch_offline)
 
-
             actions = batch["action"]
             rewards = batch["reward"]
             observations = batch["state"]
@@ -382,7 +402,9 @@ def add_actor_information_and_train(
                 observations=observations, actions=actions, next_state=next_observations
             )
 
-            observation_features, next_observation_features = get_observation_features(policy, observations, next_observations)
+            observation_features, next_observation_features = get_observation_features(
+                policy, observations, next_observations
+            )
             with policy_lock:
                 loss_critic = policy.compute_loss_critic(
                     observations=observations,
@@ -415,7 +437,9 @@ def add_actor_information_and_train(
             observations=observations, actions=actions, next_state=next_observations
         )
 
-        observation_features, next_observation_features = get_observation_features(policy, observations, next_observations)
+        observation_features, next_observation_features = get_observation_features(
+            policy, observations, next_observations
+        )
         with policy_lock:
             loss_critic = policy.compute_loss_critic(
                 observations=observations,
@@ -436,8 +460,10 @@ def add_actor_information_and_train(
         if optimization_step % cfg.training.policy_update_freq == 0:
             for _ in range(cfg.training.policy_update_freq):
                 with policy_lock:
-                    loss_actor = policy.compute_loss_actor(observations=observations,
-                                                           observation_features=observation_features)
+                    loss_actor = policy.compute_loss_actor(
+                        observations=observations,
+                        observation_features=observation_features,
+                    )
 
                     optimizers["actor"].zero_grad()
                     loss_actor.backward()
@@ -447,7 +473,7 @@ def add_actor_information_and_train(
 
                     loss_temperature = policy.compute_loss_temperature(
                         observations=observations,
-                        observation_features=observation_features
+                        observation_features=observation_features,
                     )
                     optimizers["temperature"].zero_grad()
                     loss_temperature.backward()
@@ -458,7 +484,9 @@ def add_actor_information_and_train(
         policy.update_target_networks()
         if optimization_step % cfg.training.log_freq == 0:
             training_infos["Optimization step"] = optimization_step
-            logger.log_dict(d=training_infos, mode="train", custom_step_key="Optimization step")
+            logger.log_dict(
+                d=training_infos, mode="train", custom_step_key="Optimization step"
+            )
             # logging.info(f"Training infos: {training_infos}")
 
         time_for_one_optimization_step = time.time() - time_for_one_optimization_step
