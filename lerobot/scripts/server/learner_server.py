@@ -228,10 +228,10 @@ def start_learner_threads(
             policy_lock,
             logger,
             shutdown_event,
-            resume_optimization_step,
-            resume_interaction_step,
             transition_queue,
             interaction_message_queue,
+            resume_optimization_step,
+            resume_interaction_step,
         ),
     )
     training_process.start()
@@ -303,10 +303,10 @@ def add_actor_information_and_train(
     policy_lock: Lock,
     logger: Logger,
     shutdown_event: Event,
+    transition_queue: Queue,
+    interaction_message_queue: Queue,
     resume_optimization_step: int | None = None,
     resume_interaction_step: int | None = None,
-    transition_queue: Queue | None = None,
-    interaction_message_queue: Queue | None = None,
 ):
     """
     Handles data transfer from the actor to the learner, manages training updates,
