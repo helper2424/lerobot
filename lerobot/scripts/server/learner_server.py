@@ -20,7 +20,7 @@ import time
 from pprint import pformat
 import signal
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Event, Queue
+from multiprocessing import Event, Queue, Process
 from queue import Empty
 
 import grpc
@@ -214,7 +214,10 @@ def start_learner_threads(
         interaction_message_queue,
     )
 
-    server = start_learner_server(service, host, port)
+    communication_process = Process(
+        target=start_learner_server, args=(service, host, port)
+    )
+    communication_process.start()
 
     add_actor_information_and_train(
         cfg,
@@ -228,7 +231,7 @@ def start_learner_threads(
     )
     logging.info("[LEARNER] Training process stopped")
 
-    server.stop(learner_service.STUTDOWN_TIMEOUT)
+    communication_process.stop(learner_service.STUTDOWN_TIMEOUT)
     logging.info("[LEARNER] gRPC server stopped")
 
 
