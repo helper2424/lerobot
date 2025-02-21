@@ -203,9 +203,9 @@ def start_learner_threads(
     policy: SACPolicy,
     policy_lock: Lock,
     logger: Logger,
+    shutdown_event: Event,
     resume_optimization_step: int | None = None,
     resume_interaction_step: int | None = None,
-    shutdown_event: Event | None = None,
 ) -> None:
     host = cfg.actor_learner_config.learner_host
     port = cfg.actor_learner_config.learner_port
@@ -687,9 +687,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         policy,
         policy_lock,
         logger,
+        shutdown_event,
         resume_optimization_step,
         resume_interaction_step,
-        shutdown_event,
     )
 
 
