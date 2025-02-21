@@ -1,14 +1,13 @@
 import hilserl_pb2  # type: ignore
 import hilserl_pb2_grpc  # type: ignore
 import torch
-from torch import nn
 import logging
 import io
 import pickle
-from multiprocessing import Event, Lock, Queue
+from multiprocessing import Event, Queue
+from queue import Empty
 
 from lerobot.scripts.server.buffer import (
-    move_state_dict_to_device,
     bytes_buffer_size,
     state_to_bytes,
 )
@@ -24,35 +23,29 @@ class LearnerService(hilserl_pb2_grpc.LearnerServiceServicer):
     def __init__(
         self,
         shutdown_event: Event,
-        policy: nn.Module,
-        policy_lock: Lock,
+        parameters_queue: Queue,
         seconds_between_pushes: float,
         transition_queue: Queue,
         interaction_message_queue: Queue,
     ):
         self.shutdown_event = shutdown_event
-        self.policy = policy
-        self.policy_lock = policy_lock
+        self.parameters_queue = parameters_queue
         self.seconds_between_pushes = seconds_between_pushes
         self.transition_queue = transition_queue
         self.interaction_message_queue = interaction_message_queue
 
     def _get_policy_state(self):
-        with self.policy_lock:
-            params_dict = self.policy.actor.state_dict()
-            # if self.policy.config.vision_encoder_name is not None:
-            #     if self.policy.config.freeze_vision_encoder:
-            #         params_dict: dict[str, torch.Tensor] = {
-            #             k: v
-            #             for k, v in params_dict.items()
-            #             if not k.startswith("encoder.")
-            #         }
-            #     else:
-            #         raise NotImplementedError(
-            #             "Vision encoder is not frozen, we need to send the full model over the network which requires chunking the model."
-            #         )
+        # Get initial parameters
+        params_dict = self.parameters_queue.get()
 
-        return move_state_dict_to_device(params_dict, device="cpu")
+        # Drain queue and keep only the most recent parameters
+        try:
+            while True:
+                params_dict = self.parameters_queue.get_nowait()
+        except Empty:
+            pass
+
+        return params_dict
 
     def _send_bytes(self, buffer: bytes):
         size_in_bytes = bytes_buffer_size(buffer)

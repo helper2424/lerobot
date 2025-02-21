@@ -84,7 +84,7 @@ def move_transition_to_device(
     return transition
 
 
-def move_state_dict_to_device(state_dict, device):
+def move_state_dict_to_device(state_dict, device="cpu"):
     """
     Recursively move all tensors in a (potentially) nested
     dict/list/tuple structure to the CPU.

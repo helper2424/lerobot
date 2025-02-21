@@ -15,13 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import queue
 import shutil
 import time
 from pprint import pformat
 import signal
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Process, Event, Lock, Queue
+from multiprocessing import Process, Event, Queue
 from queue import Empty
 
 import grpc
@@ -56,14 +55,12 @@ from lerobot.scripts.server.buffer import (
     ReplayBuffer,
     concatenate_batch_transitions,
     move_transition_to_device,
+    move_state_dict_to_device,
 )
 
 from lerobot.scripts.server import learner_service
 
 logging.basicConfig(level=logging.INFO)
-
-transition_queue = queue.Queue()
-interaction_message_queue = queue.Queue()
 
 
 def handle_resume_logic(cfg: DictConfig, out_dir: str) -> DictConfig:
@@ -196,16 +193,9 @@ def get_observation_features(
 def start_learner_threads(
     cfg: DictConfig,
     device: str,
-    replay_buffer: ReplayBuffer,
-    offline_replay_buffer: ReplayBuffer,
-    batch_size: int,
-    optimizers: dict,
-    policy: SACPolicy,
-    policy_lock: Lock,
     logger: Logger,
+    out_dir: str,
     shutdown_event: Event,
-    resume_optimization_step: int | None = None,
-    resume_interaction_step: int | None = None,
 ) -> None:
     host = cfg.actor_learner_config.learner_host
     port = cfg.actor_learner_config.learner_port
@@ -213,6 +203,7 @@ def start_learner_threads(
     # Create multiprocessing queues
     transition_queue = Queue()
     interaction_message_queue = Queue()
+    parameters_queue = Queue()
 
     # Create and start training process
     training_process = Process(
@@ -220,18 +211,12 @@ def start_learner_threads(
         args=(
             cfg,
             device,
-            replay_buffer,
-            offline_replay_buffer,
-            batch_size,
-            optimizers,
-            policy,
-            policy_lock,
             logger,
+            out_dir,
             shutdown_event,
             transition_queue,
             interaction_message_queue,
-            resume_optimization_step,
-            resume_interaction_step,
+            parameters_queue,
         ),
     )
     training_process.start()
@@ -239,8 +224,7 @@ def start_learner_threads(
     # Create service with multiprocessing queues
     service = learner_service.LearnerService(
         shutdown_event,
-        policy,
-        policy_lock,
+        parameters_queue,
         cfg.actor_learner_config.policy_parameters_push_frequency,
         transition_queue,
         interaction_message_queue,
@@ -295,18 +279,12 @@ def check_nan_in_transition(
 def add_actor_information_and_train(
     cfg,
     device: str,
-    replay_buffer: ReplayBuffer,
-    offline_replay_buffer: ReplayBuffer,
-    batch_size: int,
-    optimizers: dict,
-    policy: nn.Module,
-    policy_lock: Lock,
     logger: Logger,
+    out_dir: str,
     shutdown_event: Event,
     transition_queue: Queue,
     interaction_message_queue: Queue,
-    resume_optimization_step: int | None = None,
-    resume_interaction_step: int | None = None,
+    parameters_queue: Queue,
 ):
     """
     Handles data transfer from the actor to the learner, manages training updates,
@@ -340,6 +318,55 @@ def add_actor_information_and_train(
         resume_interaction_step (int | None): In the case of resume training, shift the interaction step with the last saved step in order to not break logging.
         shutdown_event (Event | None): Event to signal shutdown.
     """
+
+    logging.info("Initializing policy")
+    ### Instantiate the policy in both the actor and learner processes
+    ### To avoid sending a SACPolicy object through the port, we create a policy intance
+    ### on both sides, the learner sends the updated parameters every n steps to update the actor's parameters
+    # TODO: At some point we should just need make sac policy
+
+    policy: SACPolicy = make_policy(
+        hydra_cfg=cfg,
+        # dataset_stats=offline_dataset.meta.stats if not cfg.resume else None,
+        # Hack: But if we do online traning, we do not need dataset_stats
+        dataset_stats=None,
+        pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir)
+        if cfg.resume
+        else None,
+    )
+    # compile policy
+    policy = torch.compile(policy)
+    assert isinstance(policy, nn.Module)
+
+    optimizers, lr_scheduler = make_optimizers_and_scheduler(cfg, policy)
+    resume_optimization_step, resume_interaction_step = load_training_state(
+        cfg, logger, optimizers
+    )
+
+    log_training_info(cfg, out_dir, policy)
+
+    replay_buffer = initialize_replay_buffer(cfg, logger, device)
+    batch_size = cfg.training.batch_size
+    offline_replay_buffer = None
+
+    if cfg.dataset_repo_id is not None:
+        logging.info("make_dataset offline buffer")
+        offline_dataset = make_dataset(cfg)
+        logging.info("Convertion to a offline replay buffer")
+        active_action_dims = [
+            i
+            for i, mask in enumerate(cfg.env.wrapper.joint_masking_action_space)
+            if mask
+        ]
+        offline_replay_buffer = ReplayBuffer.from_lerobot_dataset(
+            offline_dataset,
+            device=device,
+            state_keys=cfg.policy.input_shapes.keys(),
+            action_mask=active_action_dims,
+            action_delta=cfg.env.wrapper.delta_action,
+        )
+        batch_size: int = batch_size // 2  # We will sample from both replay buffer
+
     # NOTE: This function doesn't have a single responsibility, it should be split into multiple functions
     # in the future. The reason why we did that is the  GIL in Python. It's super slow the performance
     # are divided by 200. So we need to have a single thread that does all the work.
@@ -357,30 +384,32 @@ def add_actor_information_and_train(
             logging.info("[LEARNER] Shutdown signal received. Exiting...")
             break
 
-        # Use get_nowait() to avoid blocking
+        # Get only the last transition list
+        last_transition_list = None
         try:
             while True:
-                transition_list = transition_queue.get_nowait()
-                for transition in transition_list:
+                last_transition_list = transition_queue.get_nowait()
+        except Empty:
+            if last_transition_list is not None:
+                for transition in last_transition_list:
                     transition = move_transition_to_device(transition, device=device)
                     replay_buffer.add(**transition)
-
                     if transition.get("complementary_info", {}).get("is_intervention"):
                         offline_replay_buffer.add(**transition)
-        except Empty:
-            pass
 
+        # Get only the last interaction message
+        last_interaction_message = None
         try:
             while True:
-                interaction_message = interaction_message_queue.get_nowait()
-                interaction_message["Interaction step"] += interaction_step_shift
+                last_interaction_message = interaction_message_queue.get_nowait()
+        except Empty:
+            if last_interaction_message is not None:
+                last_interaction_message["Interaction step"] += interaction_step_shift
                 logger.log_dict(
-                    interaction_message,
+                    last_interaction_message,
                     mode="train",
                     custom_step_key="Interaction step",
                 )
-        except Empty:
-            pass
 
         if len(replay_buffer) < cfg.training.online_step_before_learning:
             continue
@@ -405,19 +434,18 @@ def add_actor_information_and_train(
             observation_features, next_observation_features = get_observation_features(
                 policy, observations, next_observations
             )
-            with policy_lock:
-                loss_critic = policy.compute_loss_critic(
-                    observations=observations,
-                    actions=actions,
-                    rewards=rewards,
-                    next_observations=next_observations,
-                    done=done,
-                    observation_features=observation_features,
-                    next_observation_features=next_observation_features,
-                )
-                optimizers["critic"].zero_grad()
-                loss_critic.backward()
-                optimizers["critic"].step()
+            loss_critic = policy.compute_loss_critic(
+                observations=observations,
+                actions=actions,
+                rewards=rewards,
+                next_observations=next_observations,
+                done=done,
+                observation_features=observation_features,
+                next_observation_features=next_observation_features,
+            )
+            optimizers["critic"].zero_grad()
+            loss_critic.backward()
+            optimizers["critic"].step()
 
         batch = replay_buffer.sample(batch_size)
 
@@ -440,46 +468,44 @@ def add_actor_information_and_train(
         observation_features, next_observation_features = get_observation_features(
             policy, observations, next_observations
         )
-        with policy_lock:
-            loss_critic = policy.compute_loss_critic(
-                observations=observations,
-                actions=actions,
-                rewards=rewards,
-                next_observations=next_observations,
-                done=done,
-                observation_features=observation_features,
-                next_observation_features=next_observation_features,
-            )
-            optimizers["critic"].zero_grad()
-            loss_critic.backward()
-            optimizers["critic"].step()
+        loss_critic = policy.compute_loss_critic(
+            observations=observations,
+            actions=actions,
+            rewards=rewards,
+            next_observations=next_observations,
+            done=done,
+            observation_features=observation_features,
+            next_observation_features=next_observation_features,
+        )
+        optimizers["critic"].zero_grad()
+        loss_critic.backward()
+        optimizers["critic"].step()
 
         training_infos = {}
         training_infos["loss_critic"] = loss_critic.item()
 
         if optimization_step % cfg.training.policy_update_freq == 0:
             for _ in range(cfg.training.policy_update_freq):
-                with policy_lock:
-                    loss_actor = policy.compute_loss_actor(
-                        observations=observations,
-                        observation_features=observation_features,
-                    )
+                loss_actor = policy.compute_loss_actor(
+                    observations=observations,
+                    observation_features=observation_features,
+                )
 
-                    optimizers["actor"].zero_grad()
-                    loss_actor.backward()
-                    optimizers["actor"].step()
+                optimizers["actor"].zero_grad()
+                loss_actor.backward()
+                optimizers["actor"].step()
 
-                    training_infos["loss_actor"] = loss_actor.item()
+                training_infos["loss_actor"] = loss_actor.item()
 
-                    loss_temperature = policy.compute_loss_temperature(
-                        observations=observations,
-                        observation_features=observation_features,
-                    )
-                    optimizers["temperature"].zero_grad()
-                    loss_temperature.backward()
-                    optimizers["temperature"].step()
+                loss_temperature = policy.compute_loss_temperature(
+                    observations=observations,
+                    observation_features=observation_features,
+                )
+                optimizers["temperature"].zero_grad()
+                loss_temperature.backward()
+                optimizers["temperature"].step()
 
-                    training_infos["loss_temperature"] = loss_temperature.item()
+                training_infos["loss_temperature"] = loss_temperature.item()
 
         policy.update_target_networks()
         if optimization_step % cfg.training.log_freq == 0:
@@ -506,6 +532,11 @@ def add_actor_information_and_train(
             mode="train",
             custom_step_key="Optimization step",
         )
+
+        if optimization_step % cfg.training.policy_update_freq == 0:
+            parameters_queue.put(
+                move_state_dict_to_device(policy.actor.state_dict(), device="cpu")
+            )
 
         optimization_step += 1
         if optimization_step % cfg.training.log_freq == 0:
@@ -613,56 +644,6 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
 
-    logging.info("make_policy")
-
-    ### Instantiate the policy in both the actor and learner processes
-    ### To avoid sending a SACPolicy object through the port, we create a policy intance
-    ### on both sides, the learner sends the updated parameters every n steps to update the actor's parameters
-    # TODO: At some point we should just need make sac policy
-
-    policy_lock = Lock()
-    policy: SACPolicy = make_policy(
-        hydra_cfg=cfg,
-        # dataset_stats=offline_dataset.meta.stats if not cfg.resume else None,
-        # Hack: But if we do online traning, we do not need dataset_stats
-        dataset_stats=None,
-        pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir)
-        if cfg.resume
-        else None,
-    )
-    # compile policy
-    policy = torch.compile(policy)
-    assert isinstance(policy, nn.Module)
-
-    optimizers, lr_scheduler = make_optimizers_and_scheduler(cfg, policy)
-    resume_optimization_step, resume_interaction_step = load_training_state(
-        cfg, logger, optimizers
-    )
-
-    log_training_info(cfg, out_dir, policy)
-
-    replay_buffer = initialize_replay_buffer(cfg, logger, device)
-    batch_size = cfg.training.batch_size
-    offline_replay_buffer = None
-
-    if cfg.dataset_repo_id is not None:
-        logging.info("make_dataset offline buffer")
-        offline_dataset = make_dataset(cfg)
-        logging.info("Convertion to a offline replay buffer")
-        active_action_dims = [
-            i
-            for i, mask in enumerate(cfg.env.wrapper.joint_masking_action_space)
-            if mask
-        ]
-        offline_replay_buffer = ReplayBuffer.from_lerobot_dataset(
-            offline_dataset,
-            device=device,
-            state_keys=cfg.policy.input_shapes.keys(),
-            action_mask=active_action_dims,
-            action_delta=cfg.env.wrapper.delta_action,
-        )
-        batch_size: int = batch_size // 2  # We will sample from both replay buffer
-
     shutdown_event = Event()
 
     def signal_handler(signum, frame):
@@ -680,16 +661,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     start_learner_threads(
         cfg,
         device,
-        replay_buffer,
-        offline_replay_buffer,
-        batch_size,
-        optimizers,
-        policy,
-        policy_lock,
         logger,
+        out_dir,
         shutdown_event,
-        resume_optimization_step,
-        resume_interaction_step,
     )
 
 
