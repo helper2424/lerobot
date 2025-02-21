@@ -215,7 +215,7 @@ def start_learner_threads(
     )
 
     communication_process = Process(
-        target=start_learner_server, args=(service, host, port)
+        target=start_learner_server, args=(service, shutdown_event, host, port)
     )
     communication_process.start()
 
@@ -231,15 +231,16 @@ def start_learner_threads(
     )
     logging.info("[LEARNER] Training process stopped")
 
-    communication_process.stop(learner_service.STUTDOWN_TIMEOUT)
+    communication_process.join()
     logging.info("[LEARNER] gRPC server stopped")
 
 
 def start_learner_server(
     service: learner_service.LearnerService,
+    shutdown_event: Event,
     host="0.0.0.0",
     port=50051,
-) -> grpc.server:
+):
     server = grpc.server(
         ThreadPoolExecutor(max_workers=learner_service.MAX_WORKERS),
         options=[
@@ -255,7 +256,9 @@ def start_learner_server(
     server.start()
     logging.info("[LEARNER] gRPC server started")
 
-    return server
+    shutdown_event.wait()
+    server.stop(learner_service.STUTDOWN_TIMEOUT)
+    logging.info("[LEARNER] gRPC server stopped")
 
 
 def check_nan_in_transition(
