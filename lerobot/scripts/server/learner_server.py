@@ -21,7 +21,6 @@ from pprint import pformat
 import signal
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Event, Queue, Process
-from queue import Empty
 
 import grpc
 
@@ -382,32 +381,21 @@ def add_actor_information_and_train(
             logging.info("[LEARNER] Shutdown signal received. Exiting...")
             break
 
-        # Get only the last transition list
-        last_transition_list = None
-        try:
-            while True:
-                last_transition_list = transition_queue.get_nowait()
-        except Empty:
-            if last_transition_list is not None:
-                for transition in last_transition_list:
-                    transition = move_transition_to_device(transition, device=device)
-                    replay_buffer.add(**transition)
-                    if transition.get("complementary_info", {}).get("is_intervention"):
-                        offline_replay_buffer.add(**transition)
+        while not transition_queue.empty():
+            transition_list = transition_queue.get()
+            for transition in transition_list:
+                transition = move_transition_to_device(transition, device=device)
+                replay_buffer.add(**transition)
+                if transition.get("complementary_info", {}).get("is_intervention"):
+                    offline_replay_buffer.add(**transition)
 
-        # Get only the last interaction message
-        last_interaction_message = None
-        try:
-            while True:
-                last_interaction_message = interaction_message_queue.get_nowait()
-        except Empty:
-            if last_interaction_message is not None:
-                last_interaction_message["Interaction step"] += interaction_step_shift
-                logger.log_dict(
-                    last_interaction_message,
-                    mode="train",
-                    custom_step_key="Interaction step",
-                )
+        while not interaction_message_queue.empty():
+            interaction_message = interaction_message_queue.get()
+            # If cfg.resume, shift the interaction step with the last checkpointed step in order to not break the logging
+            interaction_message["Interaction step"] += interaction_step_shift
+            logger.log_dict(
+                interaction_message, mode="train", custom_step_key="Interaction step"
+            )
 
         if len(replay_buffer) < cfg.training.online_step_before_learning:
             continue
