@@ -20,7 +20,8 @@ import time
 from pprint import pformat
 import signal
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event, Thread, Queue
+from threading import Event, Thread
+from queue import Queue
 
 
 import grpc
