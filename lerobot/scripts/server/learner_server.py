@@ -20,7 +20,8 @@ import time
 from pprint import pformat
 import signal
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Event, Queue, Process
+from threading import Event, Thread, Queue
+
 
 import grpc
 
@@ -213,8 +214,10 @@ def start_learner_threads(
         interaction_message_queue,
     )
 
-    communication_process = Process(
-        target=start_learner_server, args=(service, shutdown_event, host, port)
+    communication_process = Thread(
+        target=start_learner_server,
+        args=(service, shutdown_event, host, port),
+        daemon=True,
     )
     communication_process.start()
 
