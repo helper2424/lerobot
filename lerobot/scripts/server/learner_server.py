@@ -523,10 +523,9 @@ def add_actor_information_and_train(
             custom_step_key="Optimization step",
         )
 
-        if optimization_step % cfg.training.policy_update_freq == 0:
-            parameters_queue.put(
-                move_state_dict_to_device(policy.actor.state_dict(), device="cpu")
-            )
+        parameters_queue.put(
+            move_state_dict_to_device(policy.actor.state_dict(), device="cpu")
+        )
 
         optimization_step += 1
         if optimization_step % cfg.training.log_freq == 0:
