@@ -477,7 +477,7 @@ def add_actor_information_and_train(
 
         logging.debug("[LEARNER] Starting optimization loop")
         time_for_one_optimization_step = time.time()
-        for _ in range(cfg.policy.utd_ratio - 1):
+        for _ in range(cfg.policy.utd_ratio):
             batch = replay_buffer.sample(batch_size)
 
             if cfg.dataset_repo_id is not None:
@@ -508,40 +508,6 @@ def add_actor_information_and_train(
             optimizers["critic"].zero_grad()
             loss_critic.backward()
             optimizers["critic"].step()
-
-        batch = replay_buffer.sample(batch_size)
-
-        if cfg.dataset_repo_id is not None:
-            batch_offline = offline_replay_buffer.sample(batch_size)
-            batch = concatenate_batch_transitions(
-                left_batch_transitions=batch, right_batch_transition=batch_offline
-            )
-
-        actions = batch["action"]
-        rewards = batch["reward"]
-        observations = batch["state"]
-        next_observations = batch["next_state"]
-        done = batch["done"]
-
-        check_nan_in_transition(
-            observations=observations, actions=actions, next_state=next_observations
-        )
-
-        observation_features, next_observation_features = get_observation_features(
-            policy, observations, next_observations
-        )
-        loss_critic = policy.compute_loss_critic(
-            observations=observations,
-            actions=actions,
-            rewards=rewards,
-            next_observations=next_observations,
-            done=done,
-            observation_features=observation_features,
-            next_observation_features=next_observation_features,
-        )
-        optimizers["critic"].zero_grad()
-        loss_critic.backward()
-        optimizers["critic"].step()
 
         training_infos = {}
         training_infos["loss_critic"] = loss_critic.item()
