@@ -19,6 +19,8 @@ import shutil
 import time
 from pprint import pformat
 from concurrent.futures import ThreadPoolExecutor
+import cProfile
+
 
 # from torch.multiprocessing import Event, Queue, Process
 # from threading import Event, Thread
@@ -237,7 +239,9 @@ def start_learner_threads(
     )
     communication_process.start()
 
-    add_actor_information_and_train(
+    cProfile.run(
+        """
+                  add_actor_information_and_train(
         cfg,
         logger,
         out_dir,
@@ -245,7 +249,10 @@ def start_learner_threads(
         transition_queue,
         interaction_message_queue,
         parameters_queue,
+    )""",
+        "method_profiadd_actor_information_and_trainle.prof",
     )
+
     logging.info("[LEARNER] Training process stopped")
 
     logging.info("[LEARNER] Closing queues")
