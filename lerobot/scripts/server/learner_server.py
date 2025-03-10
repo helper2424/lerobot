@@ -240,8 +240,7 @@ def start_learner_threads(
     communication_process.start()
 
     cProfile.run(
-        """
-        add_actor_information_and_train(
+        """add_actor_information_and_train(
         cfg,
         logger,
         out_dir,
