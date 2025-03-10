@@ -240,15 +240,9 @@ def start_learner_threads(
     communication_process.start()
 
     cProfile.run(
-        """add_actor_information_and_train(
-        cfg,
-        logger,
-        out_dir,
-        shutdown_event,
-        transition_queue,
-        interaction_message_queue,
-        parameters_queue,
-    )""",
+        """add_actor_information_and_train(cfg,logger, out_dir,shutdown_event,transition_queue,
+            interaction_message_queue,parameters_queue,
+        )""",
         "method_profiadd_actor_information_and_trainle.prof",
     )
 
