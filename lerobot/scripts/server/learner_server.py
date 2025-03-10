@@ -241,7 +241,7 @@ def start_learner_threads(
 
     cProfile.run(
         """
-                  add_actor_information_and_train(
+        add_actor_information_and_train(
         cfg,
         logger,
         out_dir,
@@ -451,6 +451,22 @@ def add_actor_information_and_train(
         resume_interaction_step if resume_interaction_step is not None else 0
     )
 
+    # Extract variables from cfg
+    online_step_before_learning = cfg.training.online_step_before_learning
+    utd_ratio = cfg.policy.utd_ratio
+    dataset_repo_id = cfg.dataset_repo_id
+    fps = cfg.fps
+    log_freq = cfg.training.log_freq
+    save_freq = cfg.training.save_freq
+    device = cfg.device
+    storage_device = cfg.training.storage_device
+    policy_update_freq = cfg.training.policy_update_freq
+    policy_parameters_push_frequency = (
+        cfg.actor_learner_config.policy_parameters_push_frequency
+    )
+    save_checkpoint = cfg.training.save_checkpoint
+    online_steps = cfg.training.online_steps
+
     while True:
         if shutdown_event is not None and shutdown_event.is_set():
             logging.info("[LEARNER] Shutdown signal received. Exiting...")
@@ -479,12 +495,12 @@ def add_actor_information_and_train(
 
         logging.debug("[LEARNER] Received interactions")
 
-        if len(replay_buffer) < cfg.training.online_step_before_learning:
+        if len(replay_buffer) < online_step_before_learning:
             continue
 
         logging.debug("[LEARNER] Starting optimization loop")
         time_for_one_optimization_step = time.time()
-        for _ in range(cfg.policy.utd_ratio):
+        for _ in range(utd_ratio):
             batch = replay_buffer.sample(batch_size)
 
             if cfg.dataset_repo_id is not None:
@@ -519,8 +535,8 @@ def add_actor_information_and_train(
         training_infos = {}
         training_infos["loss_critic"] = loss_critic.item()
 
-        if optimization_step % cfg.training.policy_update_freq == 0:
-            for _ in range(cfg.training.policy_update_freq):
+        if optimization_step % policy_update_freq == 0:
+            for _ in range(policy_update_freq):
                 loss_actor = policy.compute_loss_actor(
                     observations=observations,
                     observation_features=observation_features,
@@ -542,20 +558,16 @@ def add_actor_information_and_train(
 
                 training_infos["loss_temperature"] = loss_temperature.item()
 
-        if (
-            time.time() - last_time_policy_pushed
-            > cfg.actor_learner_config.policy_parameters_push_frequency
-        ):
+        if time.time() - last_time_policy_pushed > policy_parameters_push_frequency:
             push_actor_policy_to_queue(parameters_queue, policy)
             last_time_policy_pushed = time.time()
 
         policy.update_target_networks()
-        if optimization_step % cfg.training.log_freq == 0:
+        if optimization_step % log_freq == 0:
             training_infos["Optimization step"] = optimization_step
             logger.log_dict(
                 d=training_infos, mode="train", custom_step_key="Optimization step"
             )
-            # logging.info(f"Training infos: {training_infos}")
 
         time_for_one_optimization_step = time.time() - time_for_one_optimization_step
         frequency_for_one_optimization_step = 1 / (
@@ -576,17 +588,16 @@ def add_actor_information_and_train(
         )
 
         optimization_step += 1
-        if optimization_step % cfg.training.log_freq == 0:
+        if optimization_step % log_freq == 0:
             logging.info(f"[LEARNER] Number of optimization step: {optimization_step}")
 
-        if cfg.training.save_checkpoint and (
-            optimization_step % cfg.training.save_freq == 0
-            or optimization_step == cfg.training.online_steps
+        if save_checkpoint and (
+            optimization_step % save_freq == 0 or optimization_step == online_steps
         ):
             logging.info(f"Checkpoint policy after step {optimization_step}")
             # Note: Save with step as the identifier, and format it to have at least 6 digits but more if
             # needed (choose 6 as a minimum for consistency without being overkill).
-            _num_digits = max(6, len(str(cfg.training.online_steps)))
+            _num_digits = max(6, len(str(online_steps)))
             step_identifier = f"{optimization_step:0{_num_digits}d}"
             interaction_step = (
                 interaction_message["Interaction step"]
@@ -610,7 +621,7 @@ def add_actor_information_and_train(
                     dataset_dir,
                 )
             replay_buffer.to_lerobot_dataset(
-                cfg.dataset_repo_id, fps=cfg.fps, root=logger.log_dir / "dataset"
+                dataset_repo_id, fps=fps, root=logger.log_dir / "dataset"
             )
 
             logging.info("Resume training")
