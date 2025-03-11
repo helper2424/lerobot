@@ -239,12 +239,20 @@ def start_learner_threads(
     )
     communication_process.start()
 
-    cProfile.run(
-        """add_actor_information_and_train(cfg,logger, out_dir,shutdown_event,transition_queue,
-            interaction_message_queue,parameters_queue,
-        )""",
-        "method_profiadd_actor_information_and_trainle.prof",
+    profiler = cProfile.Profile()
+    profiler.enable()
+    add_actor_information_and_train(
+        cfg,
+        logger,
+        out_dir,
+        shutdown_event,
+        transition_queue,
+        interaction_message_queue,
+        parameters_queue,
     )
+
+    profiler.disable()
+    profiler.dump_stats("learner_server.prof")
 
     logging.info("[LEARNER] Training process stopped")
 
