@@ -239,6 +239,8 @@ def start_learner_threads(
     )
     communication_process.start()
 
+    profiler = cProfile.Profile()
+    profiler.enable()
     add_actor_information_and_train(
         cfg,
         logger,
@@ -248,6 +250,8 @@ def start_learner_threads(
         interaction_message_queue,
         parameters_queue,
     )
+    profiler.disable()
+    profiler.dump_stats("learner_server.prof")
 
     logging.info("[LEARNER] Training process stopped")
 
@@ -497,12 +501,12 @@ def add_actor_information_and_train(
         logging.debug("[LEARNER] Starting optimization loop")
         time_for_one_optimization_step = time.time()
         for _ in range(utd_ratio):
-            profiler = cProfile.Profile()
-            profiler.enable()
+            # profiler = cProfile.Profile()
+            # profiler.enable()
             batch = replay_buffer.sample(batch_size)
 
-            profiler.disable()
-            profiler.dump_stats("sample_buffer.prof")
+            # profiler.disable()
+            # profiler.dump_stats("sample_buffer.prof")
 
             if cfg.dataset_repo_id is not None:
                 batch_offline = offline_replay_buffer.sample(batch_size)
