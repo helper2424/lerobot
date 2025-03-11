@@ -19,7 +19,7 @@ training:
   lr: 3e-4
 
 
-  storage_device: "cpu"
+  storage_device: "cuda"
 
   eval_freq: 2500
   log_freq: 10
