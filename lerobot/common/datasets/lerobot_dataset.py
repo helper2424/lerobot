@@ -994,7 +994,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         robot_type: str | None = None,
         features: dict | None = None,
         use_videos: bool = True,
-        tolerance_s: float = 1e-4,
+        tolerance_s: float = 1000,
         image_writer_processes: int = 0,
         image_writer_threads: int = 0,
         video_backend: str | None = None,

@@ -280,7 +280,8 @@ def main():
     kwargs = vars(args)
     repo_id = kwargs.pop("repo_id")
     root = kwargs.pop("root")
-    tolerance_s = kwargs.pop("tolerance_s")
+    kwargs.pop("tolerance_s")
+    tolerance_s = 100000
 
     logging.info("Loading dataset")
     dataset = LeRobotDataset(repo_id, root=root, tolerance_s=tolerance_s)
