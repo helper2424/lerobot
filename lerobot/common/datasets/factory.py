@@ -87,7 +87,7 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         datasets = [x.strip() for x in datasets]
         delta_timestamps = {}
         for ds in datasets:
-            ds_meta = LeRobotDatasetMetadata(ds, local_files_only=cfg.dataset.local_files_only)
+            ds_meta = LeRobotDatasetMetadata(ds)
             d_ts = resolve_delta_timestamps(cfg.policy, ds_meta)
             delta_timestamps[ds] = d_ts
         dataset = MultiLeRobotDataset(
@@ -102,7 +102,7 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
             f"{pformat(dataset.repo_id_to_index , indent=2)}"
         )
     else:
-        ds_meta = LeRobotDatasetMetadata(cfg.dataset.repo_id, local_files_only=cfg.dataset.local_files_only)
+        ds_meta = LeRobotDatasetMetadata(cfg.dataset.repo_id)
 
         delta_timestamps = resolve_delta_timestamps(cfg.policy, ds_meta)
         dataset = LeRobotDataset(
