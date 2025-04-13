@@ -136,9 +136,18 @@ def train(cfg: TrainPipelineConfig):
         eval_env = make_env(cfg.env, n_envs=cfg.eval.batch_size, use_async_envs=cfg.eval.use_async_envs)
 
     logging.info("Creating policy")
+    
+    if isinstance(dataset, MultiLeRobotDataset):
+        ds_meta = dataset._datasets[0].meta
+        metadatas = []
+        for ds in dataset._datasets:
+            metadatas.append(ds.meta)
+        ds_meta.stats = dataset.stats
+    else:
+        ds_meta = dataset.meta
     policy = make_policy(
         cfg=cfg.policy,
-        ds_meta=dataset.meta,
+        ds_meta=ds_meta,
     )
 
     logging.info("Creating optimizer and scheduler")
