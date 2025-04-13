@@ -51,6 +51,7 @@ from lerobot.common.utils.wandb_utils import WandBLogger
 from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.scripts.eval import eval_policy
+from lerobot.common.datasets.lerobot_dataset import MultiLeRobotDataset
 
 
 def update_policy(
@@ -136,7 +137,7 @@ def train(cfg: TrainPipelineConfig):
         eval_env = make_env(cfg.env, n_envs=cfg.eval.batch_size, use_async_envs=cfg.eval.use_async_envs)
 
     logging.info("Creating policy")
-    
+
     if isinstance(dataset, MultiLeRobotDataset):
         ds_meta = dataset._datasets[0].meta
         metadatas = []
