@@ -257,8 +257,8 @@ def get_hub_safe_version(repo_id: str, version: str) -> str:
     if version not in branches:
         num_version = float(version.strip("v"))
         hub_num_versions = [float(v.strip("v")) for v in branches if v.startswith("v")]
-        if num_version >= 2.0 and all(v < 2.0 for v in hub_num_versions):
-            raise BackwardCompatibilityError(repo_id, version)
+        # if num_version >= 2.0 and all(v < 2.0 for v in hub_num_versions):
+        #     raise BackwardCompatibilityError(repo_id, version)
 
         logging.warning(
             f"""You are trying to load a dataset from {repo_id} created with a previous version of the
