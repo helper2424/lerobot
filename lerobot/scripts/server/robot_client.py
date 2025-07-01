@@ -8,17 +8,13 @@ from typing import Callable, Optional
 import grpc
 import torch
 
-from lerobot.common.transport import (
-    async_inference_pb2,  # type: ignore
-    async_inference_pb2_grpc,  # type: ignore
-)
+from lerobot.common.transport import services_pb2, services_pb2_grpc
 from lerobot.common.transport.utils import send_bytes_in_chunks
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.scripts.server.configs import RobotClientConfig
 from lerobot.scripts.server.helpers import (
     Action,
     FPSTracker,
-    Observation,
     RawObservation,
     TimedAction,
     TimedObservation,
@@ -46,7 +42,7 @@ class RobotClient:
             config.policy_type, config.pretrained_name_or_path, config.lerobot_features, config.policy_device
         )
         self.channel = grpc.insecure_channel(self.server_address)
-        self.stub = async_inference_pb2_grpc.AsyncInferenceStub(self.channel)
+        self.stub = services_pb2_grpc.AsyncInferenceStub(self.channel)
         self.logger.info(f"Initializing client to connect to server at {self.server_address}")
 
         self._running_event = threading.Event()
@@ -83,13 +79,13 @@ class RobotClient:
         try:
             # client-server handshake
             start_time = time.perf_counter()
-            self.stub.Ready(async_inference_pb2.Empty())
+            self.stub.Ready(services_pb2.Empty())
             end_time = time.perf_counter()
             self.logger.info(f"Connected to policy server in {end_time - start_time:.4f}s")
 
             # send policy instructions
             policy_config_bytes = pickle.dumps(self.policy_config)
-            policy_setup = async_inference_pb2.PolicySetup(data=policy_config_bytes)
+            policy_setup = services_pb2.PolicySetup(data=policy_config_bytes)
 
             self.logger.info("Sending policy instructions to policy server")
             self.logger.info(
@@ -139,7 +135,7 @@ class RobotClient:
         try:
             observation_iterator = send_bytes_in_chunks(
                 observation_bytes,
-                async_inference_pb2.Observation,
+                services_pb2.Observation,
                 log_prefix="[CLIENT] Observation",
                 silent=True,
             )
@@ -215,7 +211,7 @@ class RobotClient:
         while self.running:
             try:
                 # Use StreamActions to get a stream of actions from the server
-                actions_chunk = self.stub.GetActions(async_inference_pb2.Empty())
+                actions_chunk = self.stub.GetActions(services_pb2.Empty())
                 receive_time = time.time()
 
                 # Deserialize bytes back into list[TimedAction]
@@ -333,7 +329,7 @@ class RobotClient:
         """Flags when the client is ready to send an observation"""
         return self.action_queue.qsize() / self.action_chunk_size <= self._chunk_size_threshold
 
-    def control_loop_observation(self, get_observation_fn) -> Observation:
+    def control_loop_observation(self, get_observation_fn) -> services_pb2.Observation:
         try:
             # Get serialized observation bytes from the function
             start_time = time.perf_counter()
@@ -367,9 +363,14 @@ class RobotClient:
             return _captured_observation
 
         except Exception as e:
+            import traceback
+
+            traceback.print_exc()
             self.logger.error(f"Error in observation sender: {e}")
 
-    def control_loop(self, get_observation_fn: Callable[[], Observation]) -> tuple[Observation, Action]:
+    def control_loop(
+        self, get_observation_fn: Callable[[], services_pb2.Observation]
+    ) -> tuple[services_pb2.Observation, services_pb2.Actions]:
         """Combined function for executing actions and streaming observations"""
         # Wait at barrier for synchronized start
         self.start_barrier.wait()
