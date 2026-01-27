@@ -50,15 +50,30 @@ LeRobotObservation = dict[str, torch.Tensor]
 Observation = dict[str, torch.Tensor]
 
 
-def log_action_queue_sizes_to_wandb(action_queue_sizes: list[int], run_name: str | None = None) -> None:
-    """Log action queue sizes to wandb.
+def log_action_queue_sizes_to_wandb(
+    action_queue_sizes: list[int],
+    wandb_config,
+    run_name: str | None = None,
+    log_dir: str | None = None,
+) -> None:
+    """Log action queue sizes to wandb following lerobot patterns.
 
     Args:
         action_queue_sizes: List of queue sizes over time
+        wandb_config: WandBConfig instance with project, entity, mode, etc.
         run_name: Optional name for the wandb run
+        log_dir: Optional directory for wandb logs
     """
+    # Skip if wandb is disabled
+    if not wandb_config.enable:
+        logging.info("WandB logging is disabled. Skipping queue size logging.")
+        return
+
     try:
+        import os
+
         import wandb
+        from termcolor import colored
     except ImportError:
         logging.warning(
             "wandb is not installed. Install it with `pip install wandb` to log queue sizes. "
@@ -70,14 +85,26 @@ def log_action_queue_sizes_to_wandb(action_queue_sizes: list[int], run_name: str
         logging.warning("No action queue sizes to log")
         return
 
+    # Set up WandB following lerobot pattern
+    os.environ["WANDB_SILENT"] = "True"
+
     # Check if wandb is already initialized
     if wandb.run is None:
-        # Initialize wandb if not already done
-        wandb.init(project="lerobot-async-inference", name=run_name, reinit=True)
+        # Initialize wandb if not already done, following lerobot pattern
+        wandb.init(
+            project=wandb_config.project,
+            entity=wandb_config.entity,
+            name=run_name,
+            notes=wandb_config.notes,
+            dir=log_dir,
+            mode=wandb_config.mode if wandb_config.mode in ["online", "offline", "disabled"] else "online",
+        )
+        logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
+        logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
 
     # Log each queue size with its step
     for step, queue_size in enumerate(action_queue_sizes):
-        wandb.log({"action_queue_size": queue_size}, step=step)
+        wandb.log({"async_inference/action_queue_size": queue_size}, step=step)
 
     logging.info(f"Logged {len(action_queue_sizes)} action queue sizes to wandb")
 

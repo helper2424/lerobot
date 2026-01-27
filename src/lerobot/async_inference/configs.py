@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 import torch
 
+from lerobot.configs.default import WandBConfig
 from lerobot.robots.config import RobotConfig
 
 from .constants import (
@@ -143,10 +144,8 @@ class RobotClientConfig:
         metadata={"help": f"Name of aggregate function to use. Options: {list(AGGREGATE_FUNCTIONS.keys())}"},
     )
 
-    # Debug configuration
-    debug_log_queue_size_to_wandb: bool = field(
-        default=False, metadata={"help": "Log the action queue size to Weights & Biases"}
-    )
+    # Wandb configuration
+    wandb: WandBConfig = field(default_factory=WandBConfig)
 
     @property
     def environment_dt(self) -> float:
@@ -198,6 +197,5 @@ class RobotClientConfig:
             "fps": self.fps,
             "actions_per_chunk": self.actions_per_chunk,
             "task": self.task,
-            "debug_log_queue_size_to_wandb": self.debug_log_queue_size_to_wandb,
             "aggregate_fn_name": self.aggregate_fn_name,
         }

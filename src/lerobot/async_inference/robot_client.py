@@ -29,7 +29,9 @@ python src/lerobot/async_inference/robot_client.py \
     --actions_per_chunk=50 \
     --chunk_size_threshold=0.5 \
     --aggregate_fn_name=weighted_average \
-    --debug_log_queue_size_to_wandb=True
+    --wandb.enable=True \
+    --wandb.project=lerobot-async-inference \
+    --wandb.entity=your_entity
 ```
 """
 
@@ -506,10 +508,13 @@ def async_client(cfg: RobotClientConfig):
         finally:
             client.stop()
             action_receiver_thread.join()
-            if cfg.debug_log_queue_size_to_wandb:
-                log_action_queue_sizes_to_wandb(
-                    client.action_queue_size, run_name=f"{cfg.robot.type}_{cfg.policy_type}"
-                )
+            # Log queue sizes to wandb if enabled
+            log_action_queue_sizes_to_wandb(
+                client.action_queue_size,
+                cfg.wandb,
+                run_name=f"{cfg.robot.type}_{cfg.policy_type}",
+                log_dir="logs",
+            )
             client.logger.info("Client stopped")
 
 
