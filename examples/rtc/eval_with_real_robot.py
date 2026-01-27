@@ -84,7 +84,7 @@ from lerobot.configs.types import RTCAttentionSchedule
 from lerobot.datasets.utils import build_dataset_frame, hw_to_dataset_features
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from lerobot.policies.rtc.action_queue import ActionQueue
-from lerobot.policies.rtc.configuration_rtc import RTCConfig
+from lerobot.policies.rtc.configuration_rtc import RTCConfig, RTCMode
 from lerobot.policies.rtc.latency_tracker import LatencyTracker
 from lerobot.processor.factory import (
     make_default_robot_action_processor,
@@ -140,11 +140,19 @@ class RTCDemoConfig(HubMixin):
     robot: RobotConfig | None = None
 
     # RTC configuration
+    # Supports both inference-time and training-time RTC
+    # Use --rtc.mode=inference for inference-time RTC (original)
+    # Use --rtc.mode=training for training-time RTC (action prefix conditioning)
     rtc: RTCConfig = field(
         default_factory=lambda: RTCConfig(
+            mode=RTCMode.INFERENCE,  # Can be changed to RTCMode.TRAINING
+            # Inference-time RTC parameters
             execution_horizon=10,
             max_guidance_weight=1.0,
             prefix_attention_schedule=RTCAttentionSchedule.EXP,
+            # Training-time RTC parameters (unused in inference mode)
+            min_delay=0,
+            max_delay=10,
         )
     )
 
@@ -295,12 +303,19 @@ def get_actions(
 
                 preproceseded_obs = preprocessor(obs_with_policy_features)
 
-                # Generate actions WITH RTC
-                actions = policy.predict_action_chunk(
-                    preproceseded_obs,
-                    inference_delay=inference_delay,
-                    prev_chunk_left_over=prev_actions,
-                )
+                # Generate actions with RTC
+                # For training-time RTC, model handles chunking through learned conditioning
+                # For inference-time RTC, we explicitly pass previous chunk and execution params
+                if cfg.rtc.mode == RTCMode.TRAINING:
+                    # Training-time RTC: model learned to condition on action prefixes
+                    actions = policy.predict_action_chunk(preproceseded_obs)
+                else:  # INFERENCE mode
+                    # Inference-time RTC: explicit guidance with previous chunks
+                    actions = policy.predict_action_chunk(
+                        preproceseded_obs,
+                        inference_delay=inference_delay,
+                        prev_chunk_left_over=prev_actions,
+                    )
 
                 # Store original actions (before postprocessing) for RTC
                 original_actions = actions.squeeze(0).clone()

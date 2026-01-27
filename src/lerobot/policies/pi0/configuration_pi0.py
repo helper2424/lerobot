@@ -51,6 +51,7 @@ class PI0Config(PreTrainedConfig):
     max_period: float = 4.0
 
     # Real-Time Chunking (RTC) configuration
+    # Supports both inference-time and training-time RTC via the mode parameter
     rtc_config: RTCConfig | None = None
 
     image_resolution: tuple[int, int] = (

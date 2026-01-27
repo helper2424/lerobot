@@ -116,7 +116,7 @@ from lerobot.configs.types import RTCAttentionSchedule
 from lerobot.datasets.factory import resolve_delta_timestamps
 from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
-from lerobot.policies.rtc.configuration_rtc import RTCConfig
+from lerobot.policies.rtc.configuration_rtc import RTCConfig, RTCMode
 from lerobot.policies.rtc.debug_visualizer import RTCDebugVisualizer
 from lerobot.utils.hub import HubMixin
 from lerobot.utils.utils import init_logging
@@ -157,12 +157,21 @@ class RTCEvalConfig(HubMixin):
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
 
     # RTC configuration
+    # Supports both inference-time and training-time RTC
+    # Use --rtc.mode=inference for inference-time RTC (original)
+    # Use --rtc.mode=training for training-time RTC (action prefix conditioning)
     rtc: RTCConfig = field(
         default_factory=lambda: RTCConfig(
             enabled=True,
+            mode=RTCMode.INFERENCE,  # Can be changed to RTCMode.TRAINING
+            # Inference-time RTC parameters
             execution_horizon=20,
             max_guidance_weight=10.0,
             prefix_attention_schedule=RTCAttentionSchedule.EXP,
+            # Training-time RTC parameters (unused in inference mode)
+            min_delay=0,
+            max_delay=10,
+            # Debug settings (shared)
             debug=True,
             debug_maxlen=1000,
         )
@@ -307,12 +316,20 @@ class RTCEvaluator:
         policy = policy.to(self.device)
         policy.eval()
 
-        # Configure RTC
+        # Configure RTC (preserving mode from config)
         rtc_config = RTCConfig(
             enabled=rtc_enabled,
+            mode=self.cfg.rtc.mode,  # Preserve mode (INFERENCE or TRAINING)
+            # Inference-time parameters
             execution_horizon=self.cfg.rtc.execution_horizon,
             max_guidance_weight=self.cfg.rtc.max_guidance_weight,
             prefix_attention_schedule=self.cfg.rtc.prefix_attention_schedule,
+            # Training-time parameters
+            min_delay=self.cfg.rtc.min_delay,
+            max_delay=self.cfg.rtc.max_delay,
+            delay_distribution=self.cfg.rtc.delay_distribution,
+            exp_decay=self.cfg.rtc.exp_decay,
+            # Debug settings
             debug=rtc_debug,
             debug_maxlen=self.cfg.rtc.debug_maxlen,
         )
@@ -517,13 +534,23 @@ class RTCEvaluator:
         )
         policy_rtc_policy.rtc_processor.reset_tracker()
         with torch.no_grad():
-            rtc_actions = policy_rtc_policy.predict_action_chunk(
-                preprocessed_second_sample,
-                noise=noise_clone,
-                inference_delay=self.cfg.inference_delay,
-                prev_chunk_left_over=prev_chunk_left_over,
-                execution_horizon=self.cfg.rtc.execution_horizon,
-            )
+            # For training-time RTC, model handles chunking through learned conditioning
+            # For inference-time RTC, we explicitly pass previous chunk and execution params
+            if self.cfg.rtc.mode == RTCMode.TRAINING:
+                logging.info("  Using training-time RTC (model learned conditioning)")
+                rtc_actions = policy_rtc_policy.predict_action_chunk(
+                    preprocessed_second_sample,
+                    noise=noise_clone,
+                )
+            else:  # INFERENCE mode
+                logging.info("  Using inference-time RTC (explicit guidance)")
+                rtc_actions = policy_rtc_policy.predict_action_chunk(
+                    preprocessed_second_sample,
+                    noise=noise_clone,
+                    inference_delay=self.cfg.inference_delay,
+                    prev_chunk_left_over=prev_chunk_left_over,
+                    execution_horizon=self.cfg.rtc.execution_horizon,
+                )
         rtc_tracked_steps = policy_rtc_policy.rtc_processor.get_all_debug_steps()
         logging.info(f"  Tracked {len(rtc_tracked_steps)} steps with RTC")
         logging.info(f"  Generated rtc_actions shape: {rtc_actions.shape}")
