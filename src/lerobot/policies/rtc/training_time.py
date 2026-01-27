@@ -19,10 +19,29 @@ from __future__ import annotations
 import torch
 
 from lerobot.configs.types import RTCTrainingDelayDistribution
-from lerobot.policies.rtc.configuration_rtc import RTCTrainingConfig
+from lerobot.policies.rtc.configuration_rtc import RTCConfig, RTCMode, RTCTrainingConfig
 
 
-def sample_rtc_delay(cfg: RTCTrainingConfig, batch_size: int, device: torch.device) -> torch.Tensor:
+def sample_rtc_delay(
+    cfg: RTCConfig | RTCTrainingConfig, batch_size: int, device: torch.device
+) -> torch.Tensor:
+    """Sample RTC delay for training-time action prefix conditioning.
+
+    Args:
+        cfg: RTCConfig with mode=TRAINING or RTCTrainingConfig (deprecated)
+        batch_size: Number of samples to generate
+        device: Device to create tensors on
+
+    Returns:
+        Tensor of shape (batch_size,) with sampled delays
+    """
+    # Handle deprecated RTCTrainingConfig
+    if isinstance(cfg, RTCTrainingConfig):
+        cfg = cfg.to_rtc_config()
+
+    # Validate mode
+    if cfg.mode != RTCMode.TRAINING:
+        raise ValueError(f"sample_rtc_delay requires RTCConfig with mode=TRAINING, got mode={cfg.mode}")
     if cfg.max_delay == cfg.min_delay:
         return torch.full((batch_size,), cfg.min_delay, device=device, dtype=torch.long)
 

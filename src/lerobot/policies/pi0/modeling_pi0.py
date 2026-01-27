@@ -43,6 +43,7 @@ else:
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi0.configuration_pi0 import DEFAULT_IMAGE_SIZE, PI0Config
 from lerobot.policies.pretrained import PreTrainedPolicy, T
+from lerobot.policies.rtc.configuration_rtc import RTCMode
 from lerobot.policies.rtc.modeling_rtc import RTCProcessor
 from lerobot.policies.rtc.training_time import apply_rtc_training_time, masked_mean, sample_rtc_delay
 from lerobot.utils.constants import (
@@ -1293,8 +1294,8 @@ class PI0Policy(PreTrainedPolicy):
 
         # Compute loss
         postfix_mask = None
-        rtc_cfg = self.config.rtc_training_config
-        if rtc_cfg is not None and rtc_cfg.enabled and self.training:
+        rtc_cfg = self.config.rtc_config
+        if rtc_cfg is not None and rtc_cfg.enabled and rtc_cfg.mode == RTCMode.TRAINING and self.training:
             batch_size = actions.shape[0]
             time = self.model.sample_time(batch_size, actions.device)
             noise = self.model.sample_noise(actions.shape, actions.device)
