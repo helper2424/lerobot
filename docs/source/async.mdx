@@ -177,7 +177,6 @@ from lerobot.robots.so_follower import SO100FollowerConfig
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.async_inference.configs import RobotClientConfig
 from lerobot.async_inference.robot_client import RobotClient
-from lerobot.async_inference.helpers import log_action_queue_sizes_to_wandb
 from lerobot.configs.default import WandBConfig
 
 # 1. Create the robot instance
@@ -233,7 +232,6 @@ if client.start():
         client.stop()
         action_receiver_thread.join()
         # Queue sizes are automatically logged to wandb if wandb is enabled
-        # (handled in the client's shutdown process)
 ```
 <!-- prettier-ignore-end -->
 

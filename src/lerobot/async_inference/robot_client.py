@@ -77,6 +77,7 @@ from .helpers import (
     TimedAction,
     TimedObservation,
     get_logger,
+    init_wandb,
     log_action_queue_sizes_to_wandb,
     map_robot_keys_to_lerobot_features,
 )
@@ -490,6 +491,9 @@ def async_client(cfg: RobotClientConfig):
     if cfg.robot.type not in SUPPORTED_ROBOTS:
         raise ValueError(f"Robot {cfg.robot.type} not yet supported!")
 
+    # Initialize wandb at the start if enabled
+    init_wandb(cfg.wandb, run_name=f"{cfg.robot.type}_{cfg.policy_type}", log_dir="logs")
+
     client = RobotClient(cfg)
 
     if client.start():
@@ -508,13 +512,8 @@ def async_client(cfg: RobotClientConfig):
         finally:
             client.stop()
             action_receiver_thread.join()
-            # Log queue sizes to wandb if enabled
-            log_action_queue_sizes_to_wandb(
-                client.action_queue_size,
-                cfg.wandb,
-                run_name=f"{cfg.robot.type}_{cfg.policy_type}",
-                log_dir="logs",
-            )
+            # Log queue sizes to wandb (wandb is already initialized if enabled)
+            log_action_queue_sizes_to_wandb(client.action_queue_size)
             client.logger.info("Client stopped")
 
 
