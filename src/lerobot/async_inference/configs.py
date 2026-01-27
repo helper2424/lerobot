@@ -144,8 +144,8 @@ class RobotClientConfig:
     )
 
     # Debug configuration
-    debug_visualize_queue_size: bool = field(
-        default=False, metadata={"help": "Visualize the action queue size"}
+    debug_log_queue_size_to_wandb: bool = field(
+        default=False, metadata={"help": "Log the action queue size to Weights & Biases"}
     )
 
     @property
@@ -198,6 +198,6 @@ class RobotClientConfig:
             "fps": self.fps,
             "actions_per_chunk": self.actions_per_chunk,
             "task": self.task,
-            "debug_visualize_queue_size": self.debug_visualize_queue_size,
+            "debug_log_queue_size_to_wandb": self.debug_log_queue_size_to_wandb,
             "aggregate_fn_name": self.aggregate_fn_name,
         }

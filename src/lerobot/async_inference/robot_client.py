@@ -29,7 +29,7 @@ python src/lerobot/async_inference/robot_client.py \
     --actions_per_chunk=50 \
     --chunk_size_threshold=0.5 \
     --aggregate_fn_name=weighted_average \
-    --debug_visualize_queue_size=True
+    --debug_log_queue_size_to_wandb=True
 ```
 """
 
@@ -75,8 +75,8 @@ from .helpers import (
     TimedAction,
     TimedObservation,
     get_logger,
+    log_action_queue_sizes_to_wandb,
     map_robot_keys_to_lerobot_features,
-    visualize_action_queue_size,
 )
 
 
@@ -506,8 +506,10 @@ def async_client(cfg: RobotClientConfig):
         finally:
             client.stop()
             action_receiver_thread.join()
-            if cfg.debug_visualize_queue_size:
-                visualize_action_queue_size(client.action_queue_size)
+            if cfg.debug_log_queue_size_to_wandb:
+                log_action_queue_sizes_to_wandb(
+                    client.action_queue_size, run_name=f"{cfg.robot.type}_{cfg.policy_type}"
+                )
             client.logger.info("Client stopped")
 
 

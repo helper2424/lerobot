@@ -52,7 +52,7 @@ python -m lerobot.async_inference.robot_client \
     --actions_per_chunk=50 \ # POLICY: the number of actions to output at once
     --chunk_size_threshold=0.5 \ # CLIENT: the threshold for the chunk size before sending a new observation to the server
     --aggregate_fn_name=weighted_average \ # CLIENT: the function to aggregate actions on overlapping portions
-    --debug_visualize_queue_size=True # CLIENT: whether to visualize the queue size at runtime
+    --debug_log_queue_size_to_wandb=True # CLIENT: whether to log the queue size to Weights & Biases
 ```
 
 In summary, you need to specify instructions for:
@@ -60,13 +60,13 @@ In summary, you need to specify instructions for:
 - `SERVER`: the address and port of the policy server
 - `ROBOT`: the type of robot to connect to, the port to connect to, and the local `id` of the robot
 - `POLICY`: the type of policy to run, and the model name/path on server to the checkpoint to run. You also need to specify which device should the sever be using, and how many actions to output at once (capped at the policy max actions value).
-- `CLIENT`: the threshold for the chunk size before sending a new observation to the server, and the function to aggregate actions on overlapping portions. Optionally, you can also visualize the queue size at runtime, to help you tune the `CLIENT` parameters.
+- `CLIENT`: the threshold for the chunk size before sending a new observation to the server, and the function to aggregate actions on overlapping portions. Optionally, you can also log the queue size to Weights & Biases at runtime, to help you tune the `CLIENT` parameters.
 
 Importantly,
 
 - `actions_per_chunk` and `chunk_size_threshold` are key parameters to tune for your setup.
 - `aggregate_fn_name` is the function to aggregate actions on overlapping portions. You can either add a new one to a registry of functions, or add your own in `robot_client.py` (see [here](NOTE:addlinktoLOC))
-- `debug_visualize_queue_size` is a useful tool to tune the `CLIENT` parameters.
+- `debug_log_queue_size_to_wandb` is a useful tool to tune the `CLIENT` parameters.
 
 ## Done! You should see your robot moving around by now 😉
 
@@ -161,7 +161,7 @@ python -m lerobot.async_inference.robot_client \
     --actions_per_chunk=50 \ # POLICY: the number of actions to output at once
     --chunk_size_threshold=0.5 \ # CLIENT: the threshold for the chunk size before sending a new observation to the server
     --aggregate_fn_name=weighted_average \ # CLIENT: the function to aggregate actions on overlapping portions
-    --debug_visualize_queue_size=True # CLIENT: whether to visualize the queue size at runtime
+    --debug_log_queue_size_to_wandb=True # CLIENT: whether to log the queue size to Weights & Biases
 ```
 </hfoption>
 <hfoption id="API example">
@@ -173,7 +173,7 @@ from lerobot.robots.so_follower import SO100FollowerConfig
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.async_inference.configs import RobotClientConfig
 from lerobot.async_inference.robot_client import RobotClient
-from lerobot.async_inference.helpers import visualize_action_queue_size
+from lerobot.async_inference.helpers import log_action_queue_sizes_to_wandb
 
 # 1. Create the robot instance
 """Check out the cameras available in your setup by running `python lerobot/find_cameras.py`"""
@@ -219,8 +219,8 @@ if client.start():
     except KeyboardInterrupt:
         client.stop()
         action_receiver_thread.join()
-        # (Optionally) plot the action queue size
-        visualize_action_queue_size(client.action_queue_size)
+        # (Optionally) log the action queue size to wandb
+        log_action_queue_sizes_to_wandb(client.action_queue_size)
 ```
 <!-- prettier-ignore-end -->
 
@@ -279,7 +279,7 @@ We found the default values of `actions_per_chunk` and `chunk_size_threshold` to
 2. **Adjust your `fps` based on inference latency.** While the server generates a new action chunk, the client is not idle and is stepping through its current action queue. If the two processes happen at fundamentally different speeds, the client might end up with an empty queue. As such, you should reduce your fps if you consistently run out of actions in queue.
 3. **Adjust `chunk_size_threshold`**.
    - Values closer to `0.0` result in almost sequential behavior. Values closer to `1.0` → send observation every step (more bandwidth, relies on good world-model).
-   - We found values around 0.5-0.6 to work well. If you want to tweak this, spin up a `RobotClient` setting the `--debug_visualize_queue_size` to `True`. This will plot the action queue size evolution at runtime, and you can use it to find the value of `chunk_size_threshold` that works best for your setup.
+   - We found values around 0.5-0.6 to work well. If you want to tweak this, spin up a `RobotClient` setting the `--debug_log_queue_size_to_wandb` to `True`. This will log the action queue size evolution to Weights & Biases, and you can use it to find the value of `chunk_size_threshold` that works best for your setup.
 
 <p align="center">
   <img
@@ -289,8 +289,8 @@ We found the default values of `actions_per_chunk` and `chunk_size_threshold` to
 </p>
 <p align="center">
   <i>
-    The action queue size is plotted at runtime when the
-    `--debug_visualize_queue_size` flag is passed, for various levels of
+    The action queue size is logged to Weights & Biases when the
+    `--debug_log_queue_size_to_wandb` flag is passed, for various levels of
     `chunk_size_threshold` (`g` in the SmolVLA paper).
   </i>
 </p>

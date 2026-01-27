@@ -50,17 +50,36 @@ LeRobotObservation = dict[str, torch.Tensor]
 Observation = dict[str, torch.Tensor]
 
 
-def visualize_action_queue_size(action_queue_size: list[int]) -> None:
-    import matplotlib.pyplot as plt
+def log_action_queue_sizes_to_wandb(action_queue_sizes: list[int], run_name: str | None = None) -> None:
+    """Log action queue sizes to wandb.
 
-    _, ax = plt.subplots()
-    ax.set_title("Action Queue Size Over Time")
-    ax.set_xlabel("Environment steps")
-    ax.set_ylabel("Action Queue Size")
-    ax.set_ylim(0, max(action_queue_size) * 1.1)
-    ax.grid(True, alpha=0.3)
-    ax.plot(range(len(action_queue_size)), action_queue_size)
-    plt.show()
+    Args:
+        action_queue_sizes: List of queue sizes over time
+        run_name: Optional name for the wandb run
+    """
+    try:
+        import wandb
+    except ImportError:
+        logging.warning(
+            "wandb is not installed. Install it with `pip install wandb` to log queue sizes. "
+            "Skipping queue size logging."
+        )
+        return
+
+    if not action_queue_sizes:
+        logging.warning("No action queue sizes to log")
+        return
+
+    # Check if wandb is already initialized
+    if wandb.run is None:
+        # Initialize wandb if not already done
+        wandb.init(project="lerobot-async-inference", name=run_name, reinit=True)
+
+    # Log each queue size with its step
+    for step, queue_size in enumerate(action_queue_sizes):
+        wandb.log({"action_queue_size": queue_size}, step=step)
+
+    logging.info(f"Logged {len(action_queue_sizes)} action queue sizes to wandb")
 
 
 def map_robot_keys_to_lerobot_features(robot: Robot) -> dict[str, dict]:
