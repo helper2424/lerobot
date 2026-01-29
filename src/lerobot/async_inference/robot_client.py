@@ -29,7 +29,9 @@ python src/lerobot/async_inference/robot_client.py \
     --actions_per_chunk=50 \
     --chunk_size_threshold=0.5 \
     --aggregate_fn_name=weighted_average \
-    --debug_visualize_queue_size=True
+    --wandb.enable=True \
+    --wandb.project=lerobot-async-inference \
+    --wandb.entity=your_entity
 ```
 """
 
@@ -68,6 +70,7 @@ from .configs import RobotClientConfig
 from .constants import SUPPORTED_ROBOTS
 from .helpers import (
     Action,
+    AsyncInferenceWandBLogger,
     FPSTracker,
     Observation,
     RawObservation,
@@ -76,7 +79,6 @@ from .helpers import (
     TimedObservation,
     get_logger,
     map_robot_keys_to_lerobot_features,
-    visualize_action_queue_size,
 )
 
 
@@ -488,6 +490,11 @@ def async_client(cfg: RobotClientConfig):
     if cfg.robot.type not in SUPPORTED_ROBOTS:
         raise ValueError(f"Robot {cfg.robot.type} not yet supported!")
 
+    # Initialize wandb logger at the start if enabled
+    wandb_logger = AsyncInferenceWandBLogger(
+        cfg.wandb, job_name=f"{cfg.robot.type}_{cfg.policy_type}", log_dir="logs"
+    )
+
     client = RobotClient(cfg)
 
     if client.start():
@@ -506,8 +513,8 @@ def async_client(cfg: RobotClientConfig):
         finally:
             client.stop()
             action_receiver_thread.join()
-            if cfg.debug_visualize_queue_size:
-                visualize_action_queue_size(client.action_queue_size)
+            # Log queue sizes to wandb using the logger
+            wandb_logger.log_action_queue_sizes(client.action_queue_size)
             client.logger.info("Client stopped")
 
 

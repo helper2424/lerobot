@@ -34,6 +34,7 @@ from lerobot.policies import (  # noqa: F401
     SmolVLAConfig,
     VQBeTConfig,
 )
+from lerobot.rl.wandb_utils import init_wandb_run
 from lerobot.robots.robot import Robot
 from lerobot.utils.constants import OBS_IMAGES, OBS_STATE, OBS_STR
 from lerobot.utils.utils import init_logging
@@ -50,17 +51,42 @@ LeRobotObservation = dict[str, torch.Tensor]
 Observation = dict[str, torch.Tensor]
 
 
-def visualize_action_queue_size(action_queue_size: list[int]) -> None:
-    import matplotlib.pyplot as plt
+class AsyncInferenceWandBLogger:
+    """A helper class to log async inference metrics using wandb."""
 
-    _, ax = plt.subplots()
-    ax.set_title("Action Queue Size Over Time")
-    ax.set_xlabel("Environment steps")
-    ax.set_ylabel("Action Queue Size")
-    ax.set_ylim(0, max(action_queue_size) * 1.1)
-    ax.grid(True, alpha=0.3)
-    ax.plot(range(len(action_queue_size)), action_queue_size)
-    plt.show()
+    def __init__(self, cfg, job_name: str, log_dir: str = "logs"):
+        """Initialize wandb logger for async inference.
+
+        Args:
+            cfg: WandBConfig instance with project, entity, mode, etc.
+            job_name: Name for the wandb run (e.g., "so100_follower_act")
+            log_dir: Directory for wandb logs
+        """
+        self.cfg = cfg
+        self.job_name = job_name
+        self.log_dir = log_dir
+
+        # Initialize wandb using shared helper
+        self._wandb = init_wandb_run(cfg, job_name, log_dir)
+
+    def log_action_queue_sizes(self, action_queue_sizes: list[int]) -> None:
+        """Log action queue sizes to wandb.
+
+        Args:
+            action_queue_sizes: List of queue sizes over time
+        """
+        if self._wandb is None or self._wandb.run is None:
+            return
+
+        if not action_queue_sizes:
+            logging.warning("No action queue sizes to log")
+            return
+
+        # Log each queue size with its step
+        for step, queue_size in enumerate(action_queue_sizes):
+            self._wandb.log({"async_inference/action_queue_size": queue_size}, step=step)
+
+        logging.info(f"Logged {len(action_queue_sizes)} action queue sizes to wandb")
 
 
 def map_robot_keys_to_lerobot_features(robot: Robot) -> dict[str, dict]:

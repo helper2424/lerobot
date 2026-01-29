@@ -20,7 +20,6 @@ from glob import glob
 from pathlib import Path
 
 from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
-from termcolor import colored
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.utils.constants import PRETRAINED_MODEL_DIR
@@ -56,6 +55,59 @@ def get_safe_wandb_artifact_name(name: str):
     return name.replace(":", "_").replace("/", "_")
 
 
+def init_wandb_run(
+    wandb_config,
+    job_name: str,
+    log_dir: str | Path | None = None,
+    **kwargs,
+):
+    """Initialize wandb run with common lerobot patterns.
+
+    This is a shared helper function used by both training and async inference.
+
+    Args:
+        wandb_config: WandBConfig instance with project, entity, mode, etc.
+        job_name: Name for the wandb run
+        log_dir: Directory for wandb logs
+        **kwargs: Additional arguments to pass to wandb.init()
+
+    Returns:
+        wandb module if initialized, None otherwise
+    """
+    # Skip if wandb is disabled
+    if not wandb_config.enable:
+        return None
+
+    try:
+        import wandb
+        from termcolor import colored
+    except ImportError:
+        logging.warning(
+            "wandb is not installed. Install it with `pip install wandb` to enable logging. "
+            "Skipping wandb initialization."
+        )
+        return None
+
+    # Set up WandB following lerobot pattern
+    os.environ["WANDB_SILENT"] = "True"
+
+    # Initialize wandb with common parameters
+    wandb.init(
+        project=wandb_config.project,
+        entity=wandb_config.entity,
+        name=job_name,
+        notes=wandb_config.notes,
+        dir=log_dir,
+        mode=wandb_config.mode if wandb_config.mode in ["online", "offline", "disabled"] else "online",
+        **kwargs,
+    )
+
+    logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
+    logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
+
+    return wandb
+
+
 class WandBLogger:
     """A helper class to log object using wandb."""
 
@@ -66,10 +118,7 @@ class WandBLogger:
         self.env_fps = cfg.env.fps if cfg.env else None
         self._group = cfg_to_group(cfg)
 
-        # Set up WandB.
-        os.environ["WANDB_SILENT"] = "True"
-        import wandb
-
+        # Determine wandb run ID for resume functionality
         wandb_run_id = (
             cfg.wandb.run_id
             if cfg.wandb.run_id
@@ -77,31 +126,28 @@ class WandBLogger:
             if cfg.resume
             else None
         )
-        wandb.init(
+
+        # Initialize wandb using shared helper with training-specific params
+        self._wandb = init_wandb_run(
+            cfg.wandb,
+            self.job_name,
+            self.log_dir,
             id=wandb_run_id,
-            project=self.cfg.project,
-            entity=self.cfg.entity,
-            name=self.job_name,
-            notes=self.cfg.notes,
             tags=cfg_to_group(cfg, return_list=True),
-            dir=self.log_dir,
             config=cfg.to_dict(),
-            # TODO(rcadene): try set to True
             save_code=False,
-            # TODO(rcadene): split train and eval, and run async eval with job_type="eval"
             job_type="train_eval",
             resume="must" if cfg.resume else None,
-            mode=self.cfg.mode if self.cfg.mode in ["online", "offline", "disabled"] else "online",
         )
-        run_id = wandb.run.id
-        # NOTE: We will override the cfg.wandb.run_id with the wandb run id.
-        # This is because we want to be able to resume the run from the wandb run id.
-        cfg.wandb.run_id = run_id
+
+        if self._wandb and self._wandb.run:
+            run_id = self._wandb.run.id
+            # NOTE: We will override the cfg.wandb.run_id with the wandb run id.
+            # This is because we want to be able to resume the run from the wandb run id.
+            cfg.wandb.run_id = run_id
+
         # Handle custom step key for rl asynchronous training.
         self._wandb_custom_step_key: set[str] | None = None
-        logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
-        logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
-        self._wandb = wandb
 
     def log_policy(self, checkpoint_dir: Path):
         """Checkpoints the policy to wandb."""
