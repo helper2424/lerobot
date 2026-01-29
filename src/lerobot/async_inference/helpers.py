@@ -50,76 +50,74 @@ LeRobotObservation = dict[str, torch.Tensor]
 Observation = dict[str, torch.Tensor]
 
 
-def init_wandb(wandb_config, run_name: str, log_dir: str | None = None):
-    """Initialize wandb following lerobot patterns.
+class AsyncInferenceWandBLogger:
+    """A helper class to log async inference metrics using wandb, following lerobot patterns."""
 
-    Args:
-        wandb_config: WandBConfig instance with project, entity, mode, etc.
-        run_name: Name for the wandb run
-        log_dir: Optional directory for wandb logs
+    def __init__(self, cfg, job_name: str, log_dir: str = "logs"):
+        """Initialize wandb logger for async inference.
 
-    Returns:
-        wandb module if initialized, None otherwise
-    """
-    # Skip if wandb is disabled
-    if not wandb_config.enable:
-        return None
+        Args:
+            cfg: WandBConfig instance with project, entity, mode, etc.
+            job_name: Name for the wandb run (e.g., "so100_follower_act")
+            log_dir: Directory for wandb logs
+        """
+        self.cfg = cfg
+        self.job_name = job_name
+        self.log_dir = log_dir
+        self._wandb = None
 
-    try:
-        import os
+        # Skip if wandb is disabled
+        if not cfg.enable:
+            return
 
-        import wandb
-        from termcolor import colored
-    except ImportError:
-        logging.warning(
-            "wandb is not installed. Install it with `pip install wandb` to enable logging. "
-            "Skipping wandb initialization."
+        try:
+            import os
+
+            import wandb
+            from termcolor import colored
+        except ImportError:
+            logging.warning(
+                "wandb is not installed. Install it with `pip install wandb` to enable logging. "
+                "Skipping wandb initialization."
+            )
+            return
+
+        # Set up WandB following lerobot pattern
+        os.environ["WANDB_SILENT"] = "True"
+
+        # Initialize wandb
+        wandb.init(
+            project=self.cfg.project,
+            entity=self.cfg.entity,
+            name=self.job_name,
+            notes=self.cfg.notes,
+            dir=self.log_dir,
+            mode=self.cfg.mode if self.cfg.mode in ["online", "offline", "disabled"] else "online",
         )
-        return None
 
-    # Set up WandB following lerobot pattern
-    os.environ["WANDB_SILENT"] = "True"
+        logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
+        logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
 
-    # Initialize wandb
-    wandb.init(
-        project=wandb_config.project,
-        entity=wandb_config.entity,
-        name=run_name,
-        notes=wandb_config.notes,
-        dir=log_dir,
-        mode=wandb_config.mode if wandb_config.mode in ["online", "offline", "disabled"] else "online",
-    )
+        self._wandb = wandb
 
-    logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
-    logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
+    def log_action_queue_sizes(self, action_queue_sizes: list[int]) -> None:
+        """Log action queue sizes to wandb.
 
-    return wandb
+        Args:
+            action_queue_sizes: List of queue sizes over time
+        """
+        if self._wandb is None or self._wandb.run is None:
+            return
 
+        if not action_queue_sizes:
+            logging.warning("No action queue sizes to log")
+            return
 
-def log_action_queue_sizes_to_wandb(action_queue_sizes: list[int]) -> None:
-    """Log action queue sizes to wandb (assumes wandb is already initialized).
+        # Log each queue size with its step
+        for step, queue_size in enumerate(action_queue_sizes):
+            self._wandb.log({"async_inference/action_queue_size": queue_size}, step=step)
 
-    Args:
-        action_queue_sizes: List of queue sizes over time
-    """
-    try:
-        import wandb
-    except ImportError:
-        return
-
-    if wandb.run is None:
-        logging.warning("WandB is not initialized. Skipping queue size logging.")
-        return
-
-    if not action_queue_sizes:
-        logging.warning("No action queue sizes to log")
-        return
-
-    # Log each queue size with its step
-    for step, queue_size in enumerate(action_queue_sizes):
-        wandb.log({"async_inference/action_queue_size": queue_size}, step=step)
-
-    logging.info(f"Logged {len(action_queue_sizes)} action queue sizes to wandb")
+        logging.info(f"Logged {len(action_queue_sizes)} action queue sizes to wandb")
 
 
 def map_robot_keys_to_lerobot_features(robot: Robot) -> dict[str, dict]:
