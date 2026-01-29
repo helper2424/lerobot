@@ -34,6 +34,7 @@ from lerobot.policies import (  # noqa: F401
     SmolVLAConfig,
     VQBeTConfig,
 )
+from lerobot.rl.wandb_utils import init_wandb_run
 from lerobot.robots.robot import Robot
 from lerobot.utils.constants import OBS_IMAGES, OBS_STATE, OBS_STR
 from lerobot.utils.utils import init_logging
@@ -51,7 +52,7 @@ Observation = dict[str, torch.Tensor]
 
 
 class AsyncInferenceWandBLogger:
-    """A helper class to log async inference metrics using wandb, following lerobot patterns."""
+    """A helper class to log async inference metrics using wandb."""
 
     def __init__(self, cfg, job_name: str, log_dir: str = "logs"):
         """Initialize wandb logger for async inference.
@@ -64,41 +65,9 @@ class AsyncInferenceWandBLogger:
         self.cfg = cfg
         self.job_name = job_name
         self.log_dir = log_dir
-        self._wandb = None
 
-        # Skip if wandb is disabled
-        if not cfg.enable:
-            return
-
-        try:
-            import os
-
-            import wandb
-            from termcolor import colored
-        except ImportError:
-            logging.warning(
-                "wandb is not installed. Install it with `pip install wandb` to enable logging. "
-                "Skipping wandb initialization."
-            )
-            return
-
-        # Set up WandB following lerobot pattern
-        os.environ["WANDB_SILENT"] = "True"
-
-        # Initialize wandb
-        wandb.init(
-            project=self.cfg.project,
-            entity=self.cfg.entity,
-            name=self.job_name,
-            notes=self.cfg.notes,
-            dir=self.log_dir,
-            mode=self.cfg.mode if self.cfg.mode in ["online", "offline", "disabled"] else "online",
-        )
-
-        logging.info(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
-        logging.info(f"Track this run --> {colored(wandb.run.get_url(), 'yellow', attrs=['bold'])}")
-
-        self._wandb = wandb
+        # Initialize wandb using shared helper
+        self._wandb = init_wandb_run(cfg, job_name, log_dir)
 
     def log_action_queue_sizes(self, action_queue_sizes: list[int]) -> None:
         """Log action queue sizes to wandb.
